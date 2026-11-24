@@ -57,7 +57,7 @@ export async function createCartCheckout(formData: FormData): Promise<string> {
 
   if (!quote.plans || quote.plans.length === 0) {
     throw new AdminError(
-      "Set PRINT_SHIPPING_CENTS, PRINT_SOLO_SHIPPING_CENTS, PRINTS_PER_PACKAGE, and PRINT_PACKAGE_MAX_INCHES before checkout.",
+      "Set PRINT_SHIPPING_CENTS, PRINT_SOLO_SHIPPING_CENTS, PRINTS_PER_PACKAGE, PRINT_PACKAGE_MAX_INCHES, and PRINT_TUBE_INSIDE_INCHES before checkout.",
     );
   }
 

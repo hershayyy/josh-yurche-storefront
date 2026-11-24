@@ -1,4 +1,4 @@
-import { longerSideInches } from "@/lib/print-shipping";
+import { longerSideInches, packItems, shorterSideInches } from "@/lib/print-shipping";
 import type { PackageRates } from "@/lib/shipping-rate";
 import type { OrderLine, PackageTracking, PrintOrder } from "@/lib/order-status";
 
@@ -61,52 +61,24 @@ function splitShipment(
   shipWindow: string,
   rates: PackageRates,
 ): OrderPackage[] {
-  const packages: OrderPackage[] = [];
-  let shared: OrderLine[] = [];
-  let sharedCount = 0;
-
-  const push = (packageLines: OrderLine[]) => {
-    packages.push({
-      id: `${shipmentIndex}:${packages.length}`,
-      fulfillment,
-      shipWindow,
-      lines: packageLines,
-    });
-  };
-
-  const flushShared = () => {
-    if (sharedCount === 0) return;
-    push(shared);
-    shared = [];
-    sharedCount = 0;
-  };
-
-  for (const line of lines) {
-    const longer = longerSideInches(line.size);
-    const solo = longer === null || longer > rates.maxSharedInches;
-
-    if (solo) {
-      flushShared();
-      for (let count = 0; count < line.quantity; count += 1) {
-        push([{ ...line, quantity: 1 }]);
-      }
-      continue;
-    }
-
-    let remaining = line.quantity;
-
-    while (remaining > 0) {
-      const room = rates.printsPerPackage - sharedCount;
-      const take = Math.min(room, remaining);
-      shared.push({ ...line, quantity: take });
-      sharedCount += take;
-      remaining -= take;
-      if (sharedCount >= rates.printsPerPackage) flushShared();
-    }
-  }
-
-  flushShared();
-  return packages;
+  return packItems(
+    lines.map((line, index) => ({
+      id: String(index),
+      quantity: line.quantity,
+      shipsRolled: line.shipsRolled === true,
+      longerInches: longerSideInches(line.size),
+      shorterInches: shorterSideInches(line.size),
+    })),
+    rates,
+  ).map((box, index) => ({
+    id: `${shipmentIndex}:${index}`,
+    fulfillment,
+    shipWindow,
+    lines: box.items.map((piece) => ({
+      ...lines[Number(piece.id)],
+      quantity: piece.quantity,
+    })),
+  }));
 }
 
 export function fulfillmentState(

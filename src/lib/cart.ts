@@ -5,6 +5,7 @@ import {
   availablePrints,
   dollarsToCents,
   printOfferKind,
+  printShipsRolled,
 } from "@/lib/artwork";
 import { getArtworks } from "@/lib/catalog";
 import {
@@ -18,6 +19,7 @@ import {
 } from "@/lib/cart-release";
 import {
   longerSideInches,
+  shorterSideInches,
   type CartLineQuote,
 } from "@/lib/print-shipping";
 
@@ -88,7 +90,9 @@ export async function resolveCart(lines: CartLine[]): Promise<ResolvedCart> {
       kind,
       estimatedShipWindow:
         kind === "preorder" ? (artwork.estimatedPrintShipping ?? "").slice(0, 450) : "",
+      shipsRolled: printShipsRolled(print),
       longerInches: longerSideInches(print.size),
+      shorterInches: shorterSideInches(print.size),
     });
   }
 

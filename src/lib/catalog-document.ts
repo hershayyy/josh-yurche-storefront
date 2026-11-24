@@ -83,6 +83,9 @@ function parsePrint(value: unknown, index: number): PrintOption {
     size: value.size,
     price: value.price,
     available: value.available !== false,
+    ...(value.shipsRolled === true || value.shipsRolled === false
+      ? { shipsRolled: value.shipsRolled }
+      : {}),
     ...(paper && paper.length <= 200 ? { paper } : {}),
   };
 }

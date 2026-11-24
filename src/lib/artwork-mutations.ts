@@ -439,6 +439,7 @@ function readPrintFields(formData: FormData, prints: Artwork["prints"], currentI
     size,
     price: readDollars(readText(formData, "price")),
     available: formData.get("available") === "on",
+    shipsRolled: formData.get("shipsRolled") === "on",
     ...(paper ? { paper } : {}),
   };
 }

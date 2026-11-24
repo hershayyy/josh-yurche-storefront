@@ -11,6 +11,8 @@ export type OrderLine = {
   printId: string;
   /** Saved at checkout. Absent on orders placed before print types existed. */
   printType?: PrintType;
+  /** Saved at checkout. Absent orders stay on the flat-mailer rules. */
+  shipsRolled?: boolean;
   size: string;
   quantity: number;
   unitPriceCents: number;
@@ -158,6 +160,7 @@ function orderLine(value: OrderLine): OrderLine {
   };
 
   if (isPrintType(value.printType)) line.printType = value.printType;
+  if (value.shipsRolled === true) line.shipsRolled = true;
   return line;
 }
 

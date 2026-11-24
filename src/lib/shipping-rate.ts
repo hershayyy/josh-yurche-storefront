@@ -24,12 +24,15 @@ export function requirePrintShippingCents(): number {
 }
 
 export type PackageRates = {
-  /** PRINT_SHIPPING_CENTS. One package of prints that fit together. */
+  /** PRINT_SHIPPING_CENTS. One flat mailer, or one tube, holding one print or several. */
   sharedPackageCents: number;
-  /** PRINT_SOLO_SHIPPING_CENTS. A print that cannot share a package. */
+  /** PRINT_SOLO_SHIPPING_CENTS. A flat print that cannot share a mailer. */
   soloPackageCents: number;
   printsPerPackage: number;
+  /** Flat mailers share when the longer side is at or under this length. */
   maxSharedInches: number;
+  /** Tube inside length. One inch of it is reserved for protective wrapping. */
+  tubeInsideInches: number;
 };
 
 function wholeEnv(name: string, min: number, max: number): number | null {
@@ -47,12 +50,14 @@ export function packageRates(): PackageRates | null {
   const soloPackageCents = wholeEnv("PRINT_SOLO_SHIPPING_CENTS", 0, 50_000);
   const printsPerPackage = wholeEnv("PRINTS_PER_PACKAGE", 1, 20);
   const maxSharedInches = wholeEnv("PRINT_PACKAGE_MAX_INCHES", 1, 120);
+  const tubeInsideInches = wholeEnv("PRINT_TUBE_INSIDE_INCHES", 2, 120);
 
   if (
     sharedPackageCents === null ||
     soloPackageCents === null ||
     printsPerPackage === null ||
-    maxSharedInches === null
+    maxSharedInches === null ||
+    tubeInsideInches === null
   ) {
     return null;
   }
@@ -62,5 +67,6 @@ export function packageRates(): PackageRates | null {
     soloPackageCents,
     printsPerPackage,
     maxSharedInches,
+    tubeInsideInches,
   };
 }

@@ -1,5 +1,8 @@
+"use client";
+
+import { useState } from "react";
 import { addPrint, removePrint, updatePrint } from "@/app/admin/actions";
-import type { PrintOption } from "@/lib/artwork";
+import { printShipsRolled, type PrintOption } from "@/lib/artwork";
 import type { PrintType } from "@/lib/print-type";
 
 const fieldClass =
@@ -25,8 +28,9 @@ export function PrintManager({
       <h2 className="font-serif text-2xl tracking-tight">Prints</h2>
       <p className="mt-2 text-sm leading-6 text-muted">
         Choose Art print or Poster, then add the size and price. Paper or finish
-        can wait until the stock is confirmed. Unavailable sizes stay off the
-        public page.
+        can wait until the stock is confirmed. Posters ship rolled unless you
+        turn that off. Art prints ship flat unless you mark them rolled.
+        Unavailable sizes stay off the public page.
       </p>
       {error ? (
         <p role="alert" className="mt-4 text-sm">
@@ -63,6 +67,7 @@ export function PrintManager({
                   className={fieldClass}
                 />
               </label>
+              <RolledField id={`rolled-${print.id}`} defaultChecked={printShipsRolled(print)} />
               <label className="flex min-h-11 items-center gap-3 text-sm" htmlFor={`available-${print.id}`}>
                 <input
                   id={`available-${print.id}`}
@@ -90,7 +95,7 @@ export function PrintManager({
       <form action={addPrint} className="mt-8 grid gap-4 border-t border-line pt-5">
         <h3 className="text-sm">Add a size</h3>
         <input type="hidden" name="slug" value={slug} />
-        <PrintTypeField id="new-type" defaultValue="art-print" />
+        <NewPrintShipping />
         <label className="block text-sm" htmlFor="new-size">
           Size
           <input id="new-size" name="size" required maxLength={40} className={fieldClass} />
@@ -132,6 +137,58 @@ function PrintTypeField({ id, defaultValue }: { id: string; defaultValue: PrintT
         <option value="art-print">Art print</option>
         <option value="poster">Poster</option>
       </select>
+    </label>
+  );
+}
+
+function NewPrintShipping() {
+  const [type, setType] = useState<PrintType>("art-print");
+  const [rolled, setRolled] = useState(false);
+  const [touched, setTouched] = useState(false);
+
+  return (
+    <>
+      <label className="block text-sm" htmlFor="new-type">
+        Print type
+        <select
+          id="new-type"
+          name="printType"
+          required
+          value={type}
+          className={fieldClass}
+          onChange={(event) => {
+            const next = event.target.value as PrintType;
+            setType(next);
+            if (!touched) setRolled(next === "poster");
+          }}
+        >
+          <option value="art-print">Art print</option>
+          <option value="poster">Poster</option>
+        </select>
+      </label>
+      <label className="flex min-h-11 items-center gap-3 text-sm" htmlFor="new-rolled">
+        <input
+          id="new-rolled"
+          name="shipsRolled"
+          type="checkbox"
+          checked={rolled}
+          className="size-5"
+          onChange={(event) => {
+            setTouched(true);
+            setRolled(event.target.checked);
+          }}
+        />
+        Ships rolled
+      </label>
+    </>
+  );
+}
+
+function RolledField({ id, defaultChecked }: { id: string; defaultChecked: boolean }) {
+  return (
+    <label className="flex min-h-11 items-center gap-3 text-sm" htmlFor={id}>
+      <input id={id} name="shipsRolled" type="checkbox" defaultChecked={defaultChecked} className="size-5" />
+      Ships rolled
     </label>
   );
 }

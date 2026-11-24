@@ -146,7 +146,7 @@ export function PrintCart({
           ) : (
             <p className="text-sm leading-6">
               Set PRINT_SHIPPING_CENTS, PRINT_SOLO_SHIPPING_CENTS, PRINTS_PER_PACKAGE,
-              and PRINT_PACKAGE_MAX_INCHES before checkout.
+              PRINT_PACKAGE_MAX_INCHES, and PRINT_TUBE_INSIDE_INCHES before checkout.
             </p>
           )}
           <fieldset className="grid gap-4">

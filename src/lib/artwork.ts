@@ -32,6 +32,11 @@ export type PrintOption = {
   price: number;
   /** Unavailable sizes stay in the admin and off the public page. */
   available: boolean;
+  /**
+   * Ships in a tube. Posters roll unless this is set false.
+   * Art prints stay flat unless this is set true.
+   */
+  shipsRolled?: boolean;
   /** Optional stock note, added after the paper or finish is confirmed. */
   paper?: string;
 };
@@ -362,6 +367,12 @@ const statusLabels: Record<ArtworkStatus, string> = {
 
 export function leadImage(artwork: Artwork): ArtworkImage | undefined {
   return artwork.images[0];
+}
+
+export function printShipsRolled(print: { type: PrintType; shipsRolled?: boolean }) {
+  if (print.shipsRolled === true) return true;
+  if (print.shipsRolled === false) return false;
+  return print.type === "poster";
 }
 
 export function availablePrints(artwork: Artwork): PrintOption[] {
