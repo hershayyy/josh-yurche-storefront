@@ -6,12 +6,19 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "copy:preview": "node --experimental-strip-types --import ./scripts/register-alias.mjs scripts/copy-catalog-to-preview.mjs"
   },
   "dependencies": {
+    "@neondatabase/serverless": "^1.2.1",
+    "@vercel/blob": "^2.9.0",
+    "heic-convert": "^2.1.0",
+    "iron-session": "^9.1.0",
     "next": "16.4.6",
     "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "react-dom": "19.3.0",
+    "sharp": "^0.35.5",
+    "stripe": "^23.2.0"
   },
   "devDependencies": {
     "@tailwindcss/turbopack": "4.3.3",
