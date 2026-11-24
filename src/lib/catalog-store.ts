@@ -4,6 +4,7 @@ import path from "node:path";
 import { neon } from "@neondatabase/serverless";
 import { AdminError } from "@/lib/admin-error";
 import { seedCatalog, type Catalog } from "@/lib/artwork";
+import { hasBlobCredentials } from "@/lib/blob-auth";
 import { parseCatalog } from "@/lib/catalog-document";
 
 const LOCAL_PATH = path.join(process.cwd(), ".data", "catalog.json");
@@ -21,7 +22,7 @@ function databaseUrl() {
 
 function resolveStorage(): Storage {
   const url = databaseUrl();
-  const hasBlob = Boolean(process.env.BLOB_READ_WRITE_TOKEN);
+  const hasBlob = hasBlobCredentials();
 
   if (url && hasBlob) return { mode: "cloud", databaseUrl: url };
   if (!url && !hasBlob) {
@@ -29,7 +30,7 @@ function resolveStorage(): Storage {
   }
 
   throw new Error(
-    "Artwork storage needs both POSTGRES_URL (or DATABASE_URL) and BLOB_READ_WRITE_TOKEN.",
+    "Artwork storage needs Postgres and Vercel Blob. Connect both. Blob on Vercel uses BLOB_STORE_ID with OIDC.",
   );
 }
 

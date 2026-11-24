@@ -321,9 +321,7 @@ export async function addBlobOriginal(slug: string, url: string) {
     throw error;
   } finally {
     const { del } = await import("@vercel/blob");
-    await del(sourceUrl.toString(), {
-      token: process.env.BLOB_READ_WRITE_TOKEN,
-    }).catch(() => undefined);
+    await del(sourceUrl.toString()).catch(() => undefined);
   }
 }
 

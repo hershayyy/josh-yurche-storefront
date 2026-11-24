@@ -46,7 +46,6 @@ export async function storeWebImage(slug: string, bytes: Buffer): Promise<Artwor
       access: "public",
       contentType: "image/jpeg",
       addRandomSuffix: false,
-      token: process.env.BLOB_READ_WRITE_TOKEN,
     });
 
     return {
@@ -69,9 +68,7 @@ export async function deleteStoredImage(image: ArtworkImage) {
   }
 
   if (image.source === "blob") {
-    await del(image.key || image.src, {
-      token: process.env.BLOB_READ_WRITE_TOKEN,
-    });
+    await del(image.key || image.src);
   }
 }
 

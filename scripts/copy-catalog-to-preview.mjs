@@ -3,6 +3,7 @@ import path from "node:path";
 import { neon } from "@neondatabase/serverless";
 import { put } from "@vercel/blob";
 import { seedCatalog } from "../src/lib/artwork.ts";
+import { hasBlobCredentials } from "../src/lib/blob-auth.ts";
 import { parseCatalog, sameCatalog } from "../src/lib/catalog-document.ts";
 import { planCatalogImport } from "../src/lib/catalog-import-plan.ts";
 
@@ -21,11 +22,31 @@ if (stripeKey.startsWith("sk_live_") || stripeKey.startsWith("rk_live_")) {
   fail("Refusing to copy while STRIPE_SECRET_KEY is a live key.");
 }
 
-const databaseUrl = process.env.POSTGRES_URL || process.env.DATABASE_URL || "";
-const blobToken = process.env.BLOB_READ_WRITE_TOKEN || "";
+const databaseUrl = firstConfigured(
+  process.env.COPY_DATABASE_URL,
+  process.env.POSTGRES_URL,
+  process.env.DATABASE_URL,
+);
 
-if (!databaseUrl || !blobToken) {
-  fail("Preview Postgres and Blob are not configured. Pull the Preview environment into .env.preview.local.");
+if (!hasBlobCredentials(process.env, false)) {
+  fail("Preview Blob OIDC credentials are missing.");
+}
+
+if (!databaseUrl) {
+  fail(
+    "The CLI withholds the sensitive Neon URL. Pass it as COPY_DATABASE_URL for this command only.",
+  );
+}
+
+const destination = describeDatabase(databaseUrl);
+console.log(`Destination host: ${destination.host}`);
+console.log(`Destination database: ${destination.database}`);
+
+if (process.env.COPY_CONFIRM !== "preview") {
+  const version = await readCatalogVersion(databaseUrl);
+  console.log(`Current catalog version: ${version}`);
+  console.log("Destination checked. No catalog was written. Local test orders were not copied.");
+  process.exit(0);
 }
 
 if (!existsSync(catalogPath)) {
@@ -77,7 +98,7 @@ if (plan.action === "skip") {
   process.exit(0);
 }
 
-const prepared = await withBlobPhotos(local, blobToken);
+const prepared = await withBlobPhotos(local);
 parseCatalog(prepared);
 const document = JSON.stringify(prepared);
 
@@ -116,7 +137,7 @@ console.log(
 );
 console.log("Local test orders were not copied.");
 
-async function withBlobPhotos(catalog, token) {
+async function withBlobPhotos(catalog) {
   const artworks = [];
 
   for (const artwork of catalog.artworks) {
@@ -142,7 +163,6 @@ async function withBlobPhotos(catalog, token) {
         contentType: "image/jpeg",
         addRandomSuffix: false,
         allowOverwrite: true,
-        token,
       });
 
       images.push({
@@ -157,6 +177,40 @@ async function withBlobPhotos(catalog, token) {
   }
 
   return { ...catalog, artworks };
+}
+
+function firstConfigured(...values) {
+  return values.find((value) => value && value !== "[SENSITIVE]") || "";
+}
+
+function describeDatabase(url) {
+  let parsed;
+
+  try {
+    parsed = new URL(url.replace(/^postgres(?:ql)?:/i, "https:"));
+  } catch {
+    fail("COPY_DATABASE_URL could not be read. Paste the Neon URL from the hosted deployment.");
+  }
+
+  const database = decodeURIComponent(parsed.pathname.replace(/^\//, ""));
+
+  if (!parsed.hostname || !database) {
+    fail("COPY_DATABASE_URL is missing a host or database name.");
+  }
+
+  return { host: parsed.hostname, database };
+}
+
+async function readCatalogVersion(url) {
+  try {
+    const rows = await neon(url).query(
+      "SELECT version FROM artwork_catalog WHERE id = 1",
+    );
+    return typeof rows[0]?.version === "number" ? String(rows[0].version) : "none";
+  } catch (error) {
+    if (error && error.code === "42P01") return "none";
+    fail("Could not read the destination database. Check the Neon URL for the hosted deployment.");
+  }
 }
 
 function loadEnvFile(file) {

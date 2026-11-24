@@ -81,7 +81,7 @@ function StorageNote({ mode }: { mode: StorageMode }) {
 
   return (
     <p className="mt-4 text-sm leading-6" role="alert">
-      Set POSTGRES_URL and BLOB_READ_WRITE_TOKEN before editing artwork on Vercel.
+      Connect Postgres and Vercel Blob before editing artwork on Vercel.
     </p>
   );
 }

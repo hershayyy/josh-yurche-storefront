@@ -81,10 +81,10 @@ function PhotoUpload({
         setError(null);
 
         try {
-          const { upload } = await import("@vercel/blob/client");
+          const { uploadPresigned } = await import("@vercel/blob/client");
 
           for (const file of [...input.files]) {
-            const blob = await upload(file.name, file, {
+            const blob = await uploadPresigned(file.name, file, {
               access: "public",
               handleUploadUrl: "/api/admin/blob",
               clientPayload: slug,
