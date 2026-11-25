@@ -50,8 +50,11 @@ async function OrderDetails({ params }: OrderPageProps) {
   const packages = orderPackages(order, packageRates());
   const tracking = order.packageTracking ?? [];
   const progress = fulfillmentState(packages, tracking);
-  const pack = packages.filter((item) => item.fulfillment === "pack");
-  const hold = packages.filter((item) => item.fulfillment === "hold");
+  const shippedIds = new Set(tracking.map((item) => item.packageId));
+  const pack = packages.filter((item) => item.fulfillment === "pack" && !shippedIds.has(item.id));
+  const hold = packages.filter((item) => item.fulfillment === "hold" && !shippedIds.has(item.id));
+  const shipped = packages.filter((item) => shippedIds.has(item.id));
+  const numbers = new Map(packages.map((item, index) => [item.id, index + 1]));
   const address = order.shippingAddress;
   const titles = [
     ...new Set(packages.flatMap((item) => item.lines.map((line) => line.artworkTitle))),
@@ -88,7 +91,7 @@ async function OrderDetails({ params }: OrderPageProps) {
           packages={pack}
           orderId={order.id}
           tracking={tracking}
-          numbers={new Map(packages.map((item, index) => [item.id, index + 1]))}
+          numbers={numbers}
         />
       ) : null}
       {hold.length > 0 ? (
@@ -97,7 +100,16 @@ async function OrderDetails({ params }: OrderPageProps) {
           packages={hold}
           orderId={order.id}
           tracking={tracking}
-          numbers={new Map(packages.map((item, index) => [item.id, index + 1]))}
+          numbers={numbers}
+        />
+      ) : null}
+      {shipped.length > 0 ? (
+        <PackageGroup
+          heading="Shipped"
+          packages={shipped}
+          orderId={order.id}
+          tracking={tracking}
+          numbers={numbers}
         />
       ) : null}
       {order.email ? <p className="mt-6 text-sm">{order.email}</p> : null}
@@ -163,13 +175,16 @@ function PackageCard({
   tracking?: PackageTracking;
   label: string;
 }) {
-  const timing =
-    item.fulfillment === "pack" ? "Ready to ship" : item.shipWindow || "Ship window not set";
+  const timing = tracking
+    ? null
+    : item.fulfillment === "pack"
+      ? "Ready to ship"
+      : item.shipWindow || "Ship window not set";
 
   return (
     <li className="min-w-0 border border-line px-4 py-4">
       <h3 className="text-sm">{label}</h3>
-      <p className="mt-2 break-words text-sm leading-6">{timing}</p>
+      {timing ? <p className="mt-2 break-words text-sm leading-6">{timing}</p> : null}
       <ul className="mt-3 grid gap-3 text-sm leading-6">
         {item.lines.map((line) => (
           <li key={`${line.artworkSlug}-${line.printId}-${line.quantity}`}>
