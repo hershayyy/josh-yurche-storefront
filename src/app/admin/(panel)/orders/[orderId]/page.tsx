@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { connection } from "next/server";
 import { Suspense } from "react";
+import { EmailRetryForm } from "@/components/admin/email-retry-form";
 import { PackageShipmentForm } from "@/components/admin/package-shipment-form";
 import { PageTitle } from "@/components/page-shell";
 import { requireAdmin } from "@/lib/admin-auth";
@@ -13,7 +14,8 @@ import {
   packageGroups,
   type OrderPackage,
 } from "@/lib/order-packages";
-import type { PackageTracking } from "@/lib/order-status";
+import { confirmationNoticeKey, shipmentNoticeKey } from "@/lib/order-email";
+import type { EmailNotice, PackageTracking } from "@/lib/order-status";
 import { getPaidOrder } from "@/lib/orders";
 import { formatPrintChoice } from "@/lib/print-type";
 import { isTestOrder } from "@/lib/sales";
@@ -53,6 +55,7 @@ async function OrderDetails({ params }: OrderPageProps) {
   const progress = fulfillmentState(packages, tracking);
   const { pack, hold, shipped } = packageGroups(packages, tracking);
   const numbers = new Map(packages.map((item, index) => [item.id, index + 1]));
+  const confirmation = order.emailNotices?.[confirmationNoticeKey()];
   const address = order.shippingAddress;
   const titles = [
     ...new Set(packages.flatMap((item) => item.lines.map((line) => line.artworkTitle))),
@@ -77,6 +80,12 @@ async function OrderDetails({ params }: OrderPageProps) {
             ? "Partly shipped"
             : "Not shipped"}
       </p>
+      <EmailProblem
+        orderId={order.id}
+        notice={confirmation}
+        failedLabel="Confirmation email was not sent."
+        sendingLabel="Confirmation email is still sending."
+      />
       {order.shippingChoice === "ship-as-available" ? (
         <p className="mt-2 text-sm">Ship as available</p>
       ) : null}
@@ -89,6 +98,7 @@ async function OrderDetails({ params }: OrderPageProps) {
           packages={pack}
           orderId={order.id}
           tracking={tracking}
+          notices={order.emailNotices}
           numbers={numbers}
         />
       ) : null}
@@ -98,6 +108,7 @@ async function OrderDetails({ params }: OrderPageProps) {
           packages={hold}
           orderId={order.id}
           tracking={tracking}
+          notices={order.emailNotices}
           numbers={numbers}
         />
       ) : null}
@@ -107,6 +118,7 @@ async function OrderDetails({ params }: OrderPageProps) {
           packages={shipped}
           orderId={order.id}
           tracking={tracking}
+          notices={order.emailNotices}
           numbers={numbers}
         />
       ) : null}
@@ -133,12 +145,14 @@ function PackageGroup({
   packages,
   orderId,
   tracking,
+  notices,
   numbers,
 }: {
   heading: string;
   packages: OrderPackage[];
   orderId: string;
   tracking: PackageTracking[];
+  notices: Record<string, EmailNotice> | undefined;
   numbers: Map<string, number>;
 }) {
   return (
@@ -153,6 +167,7 @@ function PackageGroup({
               item={item}
               orderId={orderId}
               tracking={tracking.find((saved) => saved.packageId === item.id)}
+              emailNotice={notices?.[shipmentNoticeKey(item.id)]}
               label={numbers.size > 1 ? `Package ${number}` : "Package"}
             />
           );
@@ -162,15 +177,45 @@ function PackageGroup({
   );
 }
 
+function EmailProblem({
+  orderId,
+  packageId,
+  notice,
+  failedLabel,
+  sendingLabel,
+}: {
+  orderId: string;
+  packageId?: string;
+  notice?: EmailNotice;
+  failedLabel: string;
+  sendingLabel: string;
+}) {
+  if (!notice || notice.status === "sent") return null;
+
+  const detail = notice.error ? ` ${notice.error}` : "";
+
+  return (
+    <EmailRetryForm
+      orderId={orderId}
+      packageId={packageId}
+      message={
+        notice.status === "failed" ? `${failedLabel}${detail}` : `${sendingLabel}${detail}`
+      }
+    />
+  );
+}
+
 function PackageCard({
   item,
   orderId,
   tracking,
+  emailNotice,
   label,
 }: {
   item: OrderPackage;
   orderId: string;
   tracking?: PackageTracking;
+  emailNotice?: EmailNotice;
   label: string;
 }) {
   const timing = tracking
@@ -203,6 +248,13 @@ function PackageCard({
           <p>{tracking.carrier}</p>
           <p className="break-all">{tracking.trackingNumber}</p>
           <p className="text-muted">{shippedDate.format(new Date(tracking.shippedAt))} UTC</p>
+          <EmailProblem
+            orderId={orderId}
+            packageId={item.id}
+            notice={emailNotice}
+            failedLabel="Shipping email was not sent."
+            sendingLabel="Shipping email is still sending."
+          />
         </div>
       ) : (
         <PackageShipmentForm orderId={orderId} packageId={item.id} />

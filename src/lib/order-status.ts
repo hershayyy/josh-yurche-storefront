@@ -36,6 +36,15 @@ export type PackageTracking = {
   shippedAt: string;
 };
 
+/** One confirmation or one package shipment email. */
+export type EmailNotice = {
+  status: "sending" | "sent" | "failed";
+  at: string;
+  attempt: number;
+  claim: string;
+  error?: string;
+};
+
 export type PrintOrder = {
   id: string;
   stripeSessionId: string;
@@ -62,6 +71,12 @@ export type PrintOrder = {
   packageTracking?: PackageTracking[];
   /** Set only after every package on the order has shipped. */
   shippedAt?: string;
+  /**
+   * Confirmation and per-package shipment emails.
+   * Keys are "confirmation" and "package:<package id>".
+   * Absent until a send is attempted. A failed send stays here for an admin retry.
+   */
+  emailNotices?: Record<string, EmailNotice>;
 };
 
 /**
@@ -193,6 +208,46 @@ function isOrderLine(value: unknown): value is OrderLine {
 }
 
 const PACKAGE_ID = /^(?:legacy|\d+:\d+)$/;
+const EMAIL_NOTICE_KEY = /^(?:confirmation|package:(?:legacy|\d+:\d+))$/;
+const EMAIL_CLAIM = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function parseEmailNotices(value: unknown): Record<string, EmailNotice> | undefined {
+  if (!isRecord(value)) return undefined;
+
+  const notices: Record<string, EmailNotice> = {};
+
+  for (const [key, raw] of Object.entries(value)) {
+    if (!EMAIL_NOTICE_KEY.test(key) || !isRecord(raw)) continue;
+
+    const status = raw.status;
+    const error = typeof raw.error === "string" ? raw.error.trim().slice(0, 200) : "";
+
+    if (
+      (status !== "sending" && status !== "sent" && status !== "failed") ||
+      typeof raw.at !== "string" ||
+      !Number.isFinite(Date.parse(raw.at)) ||
+      !Number.isInteger(raw.attempt) ||
+      Number(raw.attempt) < 1 ||
+      Number(raw.attempt) > 20 ||
+      typeof raw.claim !== "string" ||
+      !EMAIL_CLAIM.test(raw.claim)
+    ) {
+      continue;
+    }
+
+    const notice: EmailNotice = {
+      status,
+      at: raw.at,
+      attempt: Number(raw.attempt),
+      claim: raw.claim,
+    };
+
+    if (error) notice.error = error;
+    notices[key] = notice;
+  }
+
+  return Object.keys(notices).length > 0 ? notices : undefined;
+}
 const CARRIER = /^[A-Za-z0-9][A-Za-z0-9 .&'-]{0,39}$/;
 const TRACKING_NUMBER = /^[A-Za-z0-9]{8,34}$/;
 

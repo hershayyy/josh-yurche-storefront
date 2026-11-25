@@ -12,6 +12,8 @@ import {
   type PrintOrder,
   type ShippingChoice,
 } from "@/lib/order-status";
+import { sendConfirmationEmail } from "@/lib/order-email-delivery";
+import { confirmationNoticeKey } from "@/lib/order-email";
 import { getOrderBySession, recordOrderEvent, savePendingOrder } from "@/lib/orders";
 import { orderShipments, quotePrintCart } from "@/lib/print-shipping";
 import { formatPrintChoice } from "@/lib/print-type";
@@ -385,10 +387,26 @@ export async function handleStripeEvent(event: Stripe.Event) {
 
   if (session.payment_status !== "paid") return;
 
-  await recordOrderEvent(fallback, {
+  const { emailClaim } = await recordOrderEvent(fallback, {
     eventId: event.id,
     next: "paid",
     at,
     email,
   });
+
+  try {
+    const saved = await getOrderBySession(session.id);
+    if (saved?.status !== "paid") return;
+
+    if (emailClaim) {
+      await sendConfirmationEmail(saved, "auto", emailClaim);
+      return;
+    }
+
+    if (saved.emailNotices?.[confirmationNoticeKey()]?.status === "sending") {
+      await sendConfirmationEmail(saved, "retry");
+    }
+  } catch {
+    console.error("Order confirmation email failed");
+  }
 }

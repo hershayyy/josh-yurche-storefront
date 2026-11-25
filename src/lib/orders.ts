@@ -1,13 +1,17 @@
 import "server-only";
+import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { neon } from "@neondatabase/serverless";
 import { AdminError } from "@/lib/admin-error";
 import { validateContiguousAddress, type DeliveryAddress } from "@/lib/contiguous-us";
+import { applyEmailClaim, beginEmailClaim, confirmationNoticeKey, type EmailMode } from "@/lib/order-email";
 import {
   applyOrderEvent,
+  parseEmailNotices,
   parsePackageTracking,
   parseShipments,
+  type EmailNotice,
   type OrderStatus,
   type PrintOrder,
 } from "@/lib/order-status";
@@ -115,6 +119,9 @@ function parseOrder(value: unknown): PrintOrder {
   ) {
     order.shippingChoice = value.shippingChoice;
   }
+
+  const emailNotices = parseEmailNotices(value.emailNotices);
+  if (emailNotices) order.emailNotices = emailNotices;
 
   return order;
 }
@@ -229,12 +236,33 @@ export async function recordOrderEvent(
     at: string;
     email?: string;
   },
-) {
+): Promise<{ becamePaid: boolean; emailClaim: { claim: string; attempt: number } | null }> {
   const storage = target();
 
   if (storage.mode === "unconfigured") {
     throw new AdminError("Connect Postgres before recording print pre-orders.");
   }
+
+  const remembered: { becamePaid: boolean; emailClaim: { claim: string; attempt: number } | null } = {
+    becamePaid: false,
+    emailClaim: null,
+  };
+
+  const withConfirmationClaim = (current: PrintOrder, next: PrintOrder) => {
+    remembered.becamePaid = current.status !== "paid" && next.status === "paid";
+    if (!remembered.becamePaid) return next;
+
+    const claimed = beginEmailClaim(
+      next.emailNotices,
+      confirmationNoticeKey(),
+      "auto",
+      event.at,
+    );
+    if (!claimed) return next;
+
+    remembered.emailClaim = { claim: claimed.claim, attempt: claimed.attempt };
+    return { ...next, emailNotices: claimed.notices };
+  };
 
   if (storage.mode === "local") {
     await updateLocal((orders) => {
@@ -242,12 +270,13 @@ export async function recordOrderEvent(
         (item) => item.stripeSessionId === fallback.stripeSessionId,
       );
       const current = index === -1 ? fallback : orders[index];
-      const next = applyOrderEvent(current, event);
+      const next = withConfirmationClaim(current, applyOrderEvent(current, event));
 
       if (index === -1) orders.push(next);
       else orders[index] = next;
     });
-    return;
+
+    return remembered;
   }
 
   await ensureTable(storage.databaseUrl);
@@ -259,7 +288,127 @@ export async function recordOrderEvent(
   const existing = rows[0]
     ? parseOrder(documentOf(rows[0] as Record<string, unknown>))
     : fallback;
-  await upsertCloud(storage.databaseUrl, applyOrderEvent(existing, event));
+  await upsertCloud(storage.databaseUrl, withConfirmationClaim(existing, applyOrderEvent(existing, event)));
+  return remembered;
+}
+
+const CLAIM_NOTICE = `UPDATE print_orders
+SET document = jsonb_set(
+  jsonb_set(document, '{emailNotices}', COALESCE(document->'emailNotices', '{}'::jsonb), true),
+  ARRAY['emailNotices', $2::text],
+  jsonb_build_object(
+    'status', 'sending',
+    'at', $3::text,
+    'attempt', CASE
+      WHEN COALESCE(document #>> ARRAY['emailNotices', $2::text, 'status'], '') = 'sending'
+        THEN COALESCE((document #>> ARRAY['emailNotices', $2::text, 'attempt'])::int, 1)
+      ELSE COALESCE((document #>> ARRAY['emailNotices', $2::text, 'attempt'])::int, 0) + 1
+    END,
+    'claim', $4::text
+  ),
+  true
+)
+WHERE stripe_session_id = $1
+  AND status = 'paid'
+  AND (
+    COALESCE(document #>> ARRAY['emailNotices', $2::text, 'status'], '') = ''
+    OR (
+      $5::text = 'retry'
+      AND document #>> ARRAY['emailNotices', $2::text, 'status'] = 'failed'
+      AND COALESCE((document #>> ARRAY['emailNotices', $2::text, 'attempt'])::int, 0) < 20
+    )
+    OR (
+      document #>> ARRAY['emailNotices', $2::text, 'status'] = 'sending'
+      AND (
+        $5::text = 'retry'
+        OR document #>> ARRAY['emailNotices', $2::text, 'at'] < $6::text
+      )
+    )
+  )
+RETURNING document`;
+
+export async function claimEmailNotice(
+  orderId: string,
+  key: string,
+  mode: EmailMode,
+): Promise<{ claim: string; attempt: number } | null> {
+  const storage = target();
+
+  if (storage.mode === "unconfigured") {
+    throw new AdminError("Connect Postgres before sending order email.");
+  }
+
+  const now = new Date().toISOString();
+  const claim = randomUUID();
+
+  if (storage.mode === "local") {
+    const claimed: { attempt: number | null } = { attempt: null };
+
+    await updateLocal((orders) => {
+      const order = orders.find((item) => item.id === orderId && item.status === "paid");
+      if (!order) return;
+      const next = applyEmailClaim(order.emailNotices, key, mode, now, claim);
+      if (!next) return;
+      order.emailNotices = next.notices;
+      claimed.attempt = next.attempt;
+    });
+
+    return claimed.attempt === null ? null : { claim, attempt: claimed.attempt };
+  }
+
+  const order = await getPaidOrder(orderId);
+  if (!order) return null;
+
+  const staleBefore = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+  const sql = neon(storage.databaseUrl);
+  const rows = await sql.query(CLAIM_NOTICE, [
+    order.stripeSessionId,
+    key,
+    now,
+    claim,
+    mode,
+    staleBefore,
+  ]);
+  const saved = rows[0] ? parseOrder(documentOf(rows[0] as Record<string, unknown>)) : null;
+  const notice = saved?.emailNotices?.[key];
+
+  if (!notice || notice.claim !== claim) return null;
+  return { claim, attempt: notice.attempt };
+}
+
+export async function settleEmailNotice(
+  orderId: string,
+  key: string,
+  claim: string,
+  notice: EmailNotice,
+) {
+  const storage = target();
+
+  if (storage.mode === "unconfigured") {
+    throw new AdminError("Connect Postgres before sending order email.");
+  }
+
+  if (storage.mode === "local") {
+    await updateLocal((orders) => {
+      const order = orders.find((item) => item.id === orderId && item.status === "paid");
+      if (order?.emailNotices?.[key]?.claim !== claim) return;
+      order.emailNotices = { ...order.emailNotices, [key]: notice };
+    });
+    return;
+  }
+
+  const order = await getPaidOrder(orderId);
+  if (!order) return;
+
+  const sql = neon(storage.databaseUrl);
+  await sql.query(
+    `UPDATE print_orders
+     SET document = jsonb_set(document, ARRAY['emailNotices', $2::text], $3::jsonb, true)
+     WHERE stripe_session_id = $1
+       AND status = 'paid'
+       AND document #>> ARRAY['emailNotices', $2::text, 'claim'] = $4`,
+    [order.stripeSessionId, key, JSON.stringify(notice), claim],
+  );
 }
 
 export async function listPaidOrders(): Promise<PrintOrder[]> {

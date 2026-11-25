@@ -5,6 +5,7 @@ import { Suspense } from "react";
 import { PageTitle } from "@/components/page-shell";
 import { requireAdmin } from "@/lib/admin-auth";
 import { formatPrice } from "@/lib/artwork";
+import { emailDeliveryProblem } from "@/lib/order-email";
 import {
   fulfillmentState,
   orderPackages,
@@ -203,6 +204,12 @@ function PaidOrder({ order, rates }: { order: PrintOrder; rates: PackageRates | 
       <PackageSummary order={order} packages={packages} tracking={tracking} />
       {progress === "shipped" ? <p className="mt-3">Shipped</p> : null}
       {progress === "partial" ? <p className="mt-3">Partly shipped</p> : null}
+      {emailDeliveryProblem(order.emailNotices) === "failed" ? (
+        <p className="mt-3">Email not sent</p>
+      ) : null}
+      {emailDeliveryProblem(order.emailNotices) === "sending" ? (
+        <p className="mt-3">Email is still sending</p>
+      ) : null}
       <p className="mt-3 text-muted">
         {order.paidAt ? `${paidDate.format(new Date(order.paidAt))} UTC` : "Paid"}
       </p>
