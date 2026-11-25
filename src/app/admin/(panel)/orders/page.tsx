@@ -5,8 +5,13 @@ import { Suspense } from "react";
 import { PageTitle } from "@/components/page-shell";
 import { requireAdmin } from "@/lib/admin-auth";
 import { formatPrice } from "@/lib/artwork";
-import { fulfillmentState, orderPackages } from "@/lib/order-packages";
-import type { OrderShipment, PrintOrder } from "@/lib/order-status";
+import {
+  fulfillmentState,
+  orderPackages,
+  packageGroups,
+  type OrderPackage,
+} from "@/lib/order-packages";
+import type { PrintOrder } from "@/lib/order-status";
 import { listPaidOrders } from "@/lib/orders";
 import { formatPrintChoice } from "@/lib/print-type";
 import { isTestOrder, parseSalesRange, salesReport, type SalesTotals } from "@/lib/sales";
@@ -186,28 +191,16 @@ function Totals({
 
 function PaidOrder({ order, rates }: { order: PrintOrder; rates: PackageRates | null }) {
   const address = order.shippingAddress;
-  const shipments = order.shipments ?? [];
-  const progress = fulfillmentState(orderPackages(order, rates), order.packageTracking ?? []);
+  const packages = orderPackages(order, rates);
+  const tracking = order.packageTracking ?? [];
+  const progress = fulfillmentState(packages, tracking);
 
   return (
     <li className="py-5 text-sm leading-6">
       {isTestOrder(order) ? (
         <p className="text-xs uppercase tracking-[0.16em] text-muted">Test order</p>
       ) : null}
-      {shipments.length > 0 ? (
-        <ShipmentSummary order={order} shipments={shipments} />
-      ) : (
-        <>
-          <p className="font-serif text-xl tracking-tight">{order.artworkTitle}</p>
-          <p className="mt-2">{formatPrintChoice(order.printType, order.size)}</p>
-          <p className="mt-1 tabular-nums">Print {formatPrice(order.unitPriceCents / 100)}</p>
-          <p className="tabular-nums">Shipping {formatPrice(order.shippingCents / 100)}</p>
-          <p className="tabular-nums">
-            Order total {formatPrice((order.unitPriceCents + order.shippingCents) / 100)}
-          </p>
-          {order.shipWindow ? <p className="mt-1 break-words">{order.shipWindow}</p> : null}
-        </>
-      )}
+      <PackageSummary order={order} packages={packages} tracking={tracking} />
       {progress === "shipped" ? <p className="mt-3">Shipped</p> : null}
       {progress === "partial" ? <p className="mt-3">Partly shipped</p> : null}
       <p className="mt-3 text-muted">
@@ -237,21 +230,21 @@ function PaidOrder({ order, rates }: { order: PrintOrder; rates: PackageRates | 
   );
 }
 
-function ShipmentSummary({
+function PackageSummary({
   order,
-  shipments,
+  packages,
+  tracking,
 }: {
   order: PrintOrder;
-  shipments: OrderShipment[];
+  packages: OrderPackage[];
+  tracking: PrintOrder["packageTracking"];
 }) {
-  const titles = [...new Set(shipments.flatMap((shipment) => shipment.lines.map((line) => line.artworkTitle)))];
-  const pack = shipments.filter((shipment) => shipment.fulfillment === "pack");
-  const hold = shipments.filter((shipment) => shipment.fulfillment === "hold");
-  const showGroupCharge = shipments.length > 1;
-  const merchandiseCents = shipments.reduce(
-    (sum, shipment) =>
-      sum +
-      shipment.lines.reduce((lineSum, line) => lineSum + line.unitPriceCents * line.quantity, 0),
+  const titles = [...new Set(packages.flatMap((item) => item.lines.map((line) => line.artworkTitle)))];
+  const groups = packageGroups(packages, tracking ?? []);
+  const numbers = new Map(packages.map((item, index) => [item.id, index + 1]));
+  const merchandiseCents = packages.reduce(
+    (sum, item) =>
+      sum + item.lines.reduce((lineSum, line) => lineSum + line.unitPriceCents * line.quantity, 0),
     0,
   );
 
@@ -266,32 +259,9 @@ function ShipmentSummary({
       {order.shippingChoice === "wait-together" ? (
         <p className="mt-2">Wait and ship together</p>
       ) : null}
-      {pack.length > 0 ? (
-        <section className="mt-4">
-          <h2 className="text-xs uppercase tracking-[0.16em] text-muted">Pack</h2>
-          {pack.map((shipment, index) => (
-            <ShipmentBlock
-              key={`pack-${index}`}
-              shipment={shipment}
-              waitTogether={order.shippingChoice === "wait-together"}
-              showCharge={showGroupCharge}
-            />
-          ))}
-        </section>
-      ) : null}
-      {hold.length > 0 ? (
-        <section className="mt-4">
-          <h2 className="text-xs uppercase tracking-[0.16em] text-muted">Hold</h2>
-          {hold.map((shipment, index) => (
-            <ShipmentBlock
-              key={`hold-${index}`}
-              shipment={shipment}
-              waitTogether={order.shippingChoice === "wait-together"}
-              showCharge={showGroupCharge}
-            />
-          ))}
-        </section>
-      ) : null}
+      <PackageSection heading="Pack" packages={groups.pack} numbers={numbers} />
+      <PackageSection heading="Hold" packages={groups.hold} numbers={numbers} />
+      <PackageSection heading="Shipped" packages={groups.shipped} numbers={numbers} />
       <p className="mt-3 tabular-nums">Shipping {formatPrice(order.shippingCents / 100)}</p>
       <p className="tabular-nums">
         Order total {formatPrice((merchandiseCents + order.shippingCents) / 100)}
@@ -300,36 +270,61 @@ function ShipmentSummary({
   );
 }
 
-function ShipmentBlock({
-  shipment,
-  waitTogether,
-  showCharge,
+function PackageSection({
+  heading,
+  packages,
+  numbers,
 }: {
-  shipment: OrderShipment;
-  waitTogether: boolean;
-  showCharge: boolean;
+  heading: "Pack" | "Hold" | "Shipped";
+  packages: OrderPackage[];
+  numbers: Map<string, number>;
 }) {
-  const timing = waitTogether
-    ? "Ships together when every pre-order is ready"
-    : shipment.fulfillment === "pack"
-      ? "Ready to ship"
-      : shipment.shipWindow || "Ship window not set";
+  if (packages.length === 0) return null;
+
+  return (
+    <section className="mt-4">
+      <h2 className="text-xs uppercase tracking-[0.16em] text-muted">{heading}</h2>
+      {packages.map((item) => (
+        <PackageBlock
+          key={item.id}
+          item={item}
+          heading={heading}
+          label={numbers.size > 1 ? `Package ${numbers.get(item.id) ?? 1}` : null}
+        />
+      ))}
+    </section>
+  );
+}
+
+function PackageBlock({
+  item,
+  heading,
+  label,
+}: {
+  item: OrderPackage;
+  heading: "Pack" | "Hold" | "Shipped";
+  label: string | null;
+}) {
+  const timing =
+    heading === "Shipped"
+      ? null
+      : heading === "Pack"
+        ? "Ready to ship"
+        : item.shipWindow || "Ship window not set";
 
   return (
     <div className="mt-3 min-w-0">
-      <p className="break-words">{timing}</p>
-      {waitTogether && shipment.shipWindow ? (
-        <p className="break-words">{shipment.shipWindow}</p>
-      ) : null}
+      {label ? <p>{label}</p> : null}
+      {timing ? <p className="break-words">{timing}</p> : null}
       <ul className="mt-2 grid gap-3">
-        {shipment.lines.map((line) => (
-          <li key={`${line.artworkSlug}-${line.printId}`}>
+        {item.lines.map((line) => (
+          <li key={`${line.artworkSlug}-${line.printId}-${line.quantity}`}>
             <p>{line.artworkTitle}</p>
             <p>
               {formatPrintChoice(line.printType, line.size)} · Qty {line.quantity}
             </p>
             <p>{line.kind === "in-stock" ? "Prints available" : "Open for pre-order"}</p>
-            {line.shipWindow && line.shipWindow !== shipment.shipWindow ? (
+            {heading !== "Shipped" && line.shipWindow && line.shipWindow !== item.shipWindow ? (
               <p className="break-words">{line.shipWindow}</p>
             ) : null}
             <p className="tabular-nums">
@@ -338,11 +333,6 @@ function ShipmentBlock({
           </li>
         ))}
       </ul>
-      {showCharge ? (
-        <p className="mt-2 tabular-nums">
-          Shipping {formatPrice(shipment.shippingCents / 100)}
-        </p>
-      ) : null}
     </div>
   );
 }

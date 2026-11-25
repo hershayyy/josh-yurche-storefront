@@ -81,6 +81,16 @@ function splitShipment(
   }));
 }
 
+/** Unshipped packages stay in Pack or Hold. Shipped packages leave both. */
+export function packageGroups(packages: OrderPackage[], tracking: PackageTracking[]) {
+  const shippedIds = new Set(tracking.map((item) => item.packageId));
+  return {
+    pack: packages.filter((item) => item.fulfillment === "pack" && !shippedIds.has(item.id)),
+    hold: packages.filter((item) => item.fulfillment === "hold" && !shippedIds.has(item.id)),
+    shipped: packages.filter((item) => shippedIds.has(item.id)),
+  };
+}
+
 export function fulfillmentState(
   packages: OrderPackage[],
   tracking: PackageTracking[],

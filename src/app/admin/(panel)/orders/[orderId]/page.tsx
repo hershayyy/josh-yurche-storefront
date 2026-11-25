@@ -10,6 +10,7 @@ import { formatPrice } from "@/lib/artwork";
 import {
   fulfillmentState,
   orderPackages,
+  packageGroups,
   type OrderPackage,
 } from "@/lib/order-packages";
 import type { PackageTracking } from "@/lib/order-status";
@@ -50,10 +51,7 @@ async function OrderDetails({ params }: OrderPageProps) {
   const packages = orderPackages(order, packageRates());
   const tracking = order.packageTracking ?? [];
   const progress = fulfillmentState(packages, tracking);
-  const shippedIds = new Set(tracking.map((item) => item.packageId));
-  const pack = packages.filter((item) => item.fulfillment === "pack" && !shippedIds.has(item.id));
-  const hold = packages.filter((item) => item.fulfillment === "hold" && !shippedIds.has(item.id));
-  const shipped = packages.filter((item) => shippedIds.has(item.id));
+  const { pack, hold, shipped } = packageGroups(packages, tracking);
   const numbers = new Map(packages.map((item, index) => [item.id, index + 1]));
   const address = order.shippingAddress;
   const titles = [
